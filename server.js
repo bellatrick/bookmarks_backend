@@ -377,7 +377,7 @@ app.post('/api/collections', checkJwt, async (req, res) => {
            AND ($5::timestamp IS NULL OR b.created_at >= $5)
            AND ($6::timestamp IS NULL OR b.created_at <= $6)
          ORDER BY
-           (similarity * 0.7 + text_rank * 0.3) DESC
+           (1 - (b.content_embedding <=> $1)) * 0.7 + ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($2)) * 0.3 DESC
          LIMIT 20`,
         [searchEmbedding, query, auth0Id, tags, dateFrom, dateTo]
       );
@@ -388,6 +388,7 @@ app.post('/api/collections', checkJwt, async (req, res) => {
       res.status(500).json({ error: 'Advanced search failed' });
     }
   });
+
 
   // Make bookmark public
 app.post('/api/bookmarks/:id/share', checkJwt, async (req, res) => {
