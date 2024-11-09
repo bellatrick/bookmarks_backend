@@ -365,6 +365,7 @@ app.post('/api/collections', checkJwt, async (req, res) => {
 
     try {
       const searchEmbedding = await generateEmbedding(query);
+      const formattedTags = tags ? `{${tags.split(',').map(tag => `"${tag.trim()}"`).join(',')}}` : null;
 
       const result = await pool.query(
         `SELECT b.*,
@@ -379,7 +380,7 @@ app.post('/api/collections', checkJwt, async (req, res) => {
          ORDER BY
            (1 - (b.content_embedding <=> $1)) * 0.7 + ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($2)) * 0.3 DESC
          LIMIT 20`,
-        [searchEmbedding, query, auth0Id, tags, dateFrom, dateTo]
+        [searchEmbedding, query, auth0Id, formattedTags, dateFrom, dateTo]
       );
 
       res.json(result.rows);
