@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 
 const allowedOrigins = [
-  "http://localhost:3000","https://pgbookmarker.netlify.app/"
+  "http://localhost:3000","https://pgbookmarker.netlify.app"
 ];
 
 // Configure CORS options
@@ -392,7 +392,7 @@ app.post('/api/collections', checkJwt, async (req, res) => {
          FROM bookmarks b
          JOIN users u ON b.user_id = u.id
          WHERE u.auth0_id = $3
-           AND (1 - (b.content_embedding <=> $1)) >= 0.5 
+           AND (1 - (b.content_embedding <=> $1)) >= 0.5
            AND ($4::text[] IS NULL OR b.tags && $4::text[])
            AND ($5::timestamp IS NULL OR b.created_at >= $5)
            AND ($6::timestamp IS NULL OR b.created_at <= $6)
