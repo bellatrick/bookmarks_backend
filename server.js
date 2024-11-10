@@ -382,81 +382,33 @@ app.post('/api/collections', checkJwt, async (req, res) => {
     const auth0Id = req.auth.payload.sub;
 
     try {
-        // If query is empty, return most recent bookmarks
-        if (!query || query.trim() === '') {
-            const result = await pool.query(
-                `SELECT b.*
-                 FROM bookmarks b
-                 JOIN users u ON b.user_id = u.id
-                 WHERE u.auth0_id = $1
-                   AND ($2::text[] IS NULL OR b.tags && $2::text[])
-                   AND ($3::timestamp IS NULL OR b.created_at >= $3)
-                   AND ($4::timestamp IS NULL OR b.created_at <= $4)
-                 ORDER BY b.created_at DESC
-                 LIMIT 20`,
-                [auth0Id, formattedTags, dateFrom, dateTo]
-            );
-            return res.json(result.rows);
-        }
+      const searchEmbedding = await generateEmbedding(query);
+      const formattedTags = tags ? `{${tags.split(',').map(tag => `"${tag.trim()}"`).join(',')}}` : null;
 
-        const trimmedQuery = query.trim();
-        const wordCount = trimmedQuery.split(/\s+/).length;
-        const formattedTags = tags ? `{${tags.split(',').map(tag => `"${tag.trim()}"`).join(',')}}` : null;
+      const result = await pool.query(
+        `SELECT b.*,
+                1 - (b.content_embedding <=> $1) as similarity,
+                ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($2)) as text_rank
+         FROM bookmarks b
+         JOIN users u ON b.user_id = u.id
+         WHERE u.auth0_id = $3
+           AND (1 - (b.content_embedding <=> $1)) >= 0.5 
+           AND ($4::text[] IS NULL OR b.tags && $4::text[])
+           AND ($5::timestamp IS NULL OR b.created_at >= $5)
+           AND ($6::timestamp IS NULL OR b.created_at <= $6)
+         ORDER BY
+           (1 - (b.content_embedding <=> $1)) * 0.7 + ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($2)) * 0.3 DESC
+         LIMIT 20`,
+        [searchEmbedding, query, auth0Id, formattedTags, dateFrom, dateTo]
+      );
 
-        // For single-word queries or very short phrases (1-2 words),
-        // prioritize exact matches and text search
-        if (wordCount <= 2) {
-            const result = await pool.query(
-                `SELECT b.*,
-                        ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($1)) as text_rank
-                 FROM bookmarks b
-                 JOIN users u ON b.user_id = u.id
-                 WHERE u.auth0_id = $2
-                   AND ($3::text[] IS NULL OR b.tags && $3::text[])
-                   AND ($4::timestamp IS NULL OR b.created_at >= $4)
-                   AND ($5::timestamp IS NULL OR b.created_at <= $5)
-                   AND (
-                       -- Exact title match
-                       LOWER(b.title) LIKE LOWER($6)
-                       -- Or text search match
-                       OR to_tsvector('english', b.title || ' ' || b.description) @@ plainto_tsquery($1)
-                   )
-                 ORDER BY
-                    CASE
-                        WHEN LOWER(b.title) LIKE LOWER($6) THEN 2  -- Prioritize exact matches
-                        ELSE ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($1))
-                    END DESC
-                 LIMIT 20`,
-                [trimmedQuery, auth0Id, formattedTags, dateFrom, dateTo, `%${trimmedQuery}%`]
-            );
-            return res.json(result.rows);
-        }
-
-        // For longer queries, use both semantic and text search
-        const searchEmbedding = await generateEmbedding(trimmedQuery);
-        const result = await pool.query(
-            `SELECT b.*,
-                    1 - (b.content_embedding <=> $1) as similarity,
-                    ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($2)) as text_rank
-             FROM bookmarks b
-             JOIN users u ON b.user_id = u.id
-             WHERE u.auth0_id = $3
-               AND ($4::text[] IS NULL OR b.tags && $4::text[])
-               AND ($5::timestamp IS NULL OR b.created_at >= $5)
-               AND ($6::timestamp IS NULL OR b.created_at <= $6)
-             ORDER BY
-               (1 - (b.content_embedding <=> $1)) * 0.7 +
-               ts_rank(to_tsvector('english', b.title || ' ' || b.description), plainto_tsquery($2)) * 0.3 DESC
-             LIMIT 20`,
-            [searchEmbedding, trimmedQuery, auth0Id, formattedTags, dateFrom, dateTo]
-        );
-
-        res.json(result.rows);
+      res.json(result.rows);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Advanced search failed' });
+      console.error(error);
+      res.status(500).json({ error: 'Advanced search failed' });
     }
-});
+  });
+
   // Make bookmark public
 app.post('/api/bookmarks/:id/share', checkJwt, async (req, res) => {
     const { id } = req.params;
