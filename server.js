@@ -10,7 +10,9 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 app.use(express.json());
 app.use(cors({
-    origin: 'http://localhost:3000'
+    origin: ['http://localhost:3000',"https://pgbookmarker.netlify.app/" ],
+    credentials: true
+
   }));
 
 // Configure Auth0 middleware
